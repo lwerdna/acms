@@ -1,0 +1,63 @@
+body 
+{
+    font-family: arial;
+    font-size: medium;
+    margin: 8px;
+    background: black;
+}
+
+a:link { color: #FF0000 }
+a:visited { color: #CC0000 }
+a:hover { text-decoration: underline }
+
+a.entry_title
+{
+    text-decoration: none;
+    font-weight: bold;
+    font-size: large;
+}
+
+p
+{
+    margin: 0;
+}
+
+div.center
+{
+    background: red;
+    margin: 0 auto;
+}
+
+div.title
+{
+    background-color: #C0C0C0;
+    font-size: large;
+    padding: 0px 0px 0px 4px; /* top right bottom left */
+}
+
+div.subtitle
+{
+    background-color: #C0C0C0;
+    font-size: small;
+    padding: 0px 0px 0px 4px;
+}
+
+div.content
+{
+    padding: 4px;
+}
+
+div.files
+{
+    padding: 4px;
+}
+
+div.entry
+{
+    width: 1024px;
+    background: #E0E0E0;
+    /* padding: 4px; */
+    /* border-radius: 8px; */
+    /* margin-bottom: 8px; */
+    margin: 8px auto 8px auto;
+}
