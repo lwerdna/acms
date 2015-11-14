@@ -59,5 +59,6 @@ div.entry
     /* padding: 4px; */
     /* border-radius: 8px; */
     /* margin-bottom: 8px; */
-    margin: 8px auto 8px auto;
+    /* top, right, bottom, left */
+    margin: 8px auto 16px auto;
 }

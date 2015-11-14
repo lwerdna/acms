@@ -10,14 +10,10 @@ import random
 
 import Image
 
-g_cms_name = 'Andrew\'s Crap!'
-g_author = 'andrewl'
-g_debug = False
-g_thumbSize = (128,128)
+import settings
 
 def debug(msg):
-    global g_debug
-    if g_debug:
+    if settings.debug:
         print msg
 
 # generate a random 4-character string
@@ -44,6 +40,16 @@ def makeDateStr(epoch):
     tmp = time.strftime(fmt, struct_time)
     debug("converted epoch %d to %s" % (epoch, tmp))
     return tmp
+
+def writeFile(dName, fName, content):
+    if not re.match(r'^[\w]+$', dName):
+        raise Exception('directory name \'%s\' contains illegal characters' % dName)
+    if not re.match(r'^[\w\.]+$', fName):
+        raise Exception('file name contains illegal characters')
+    path = './%s/%s' % (dName, fName)
+    fobj = open(path, 'wb')
+    fobj.write(content)
+    fobj.close()
 
 def saveAttachment(dName, fName, fileitem):
     if not fileitem.file:
@@ -128,9 +134,7 @@ def entryInsert(html, date):
     fout.close()
     os.rename('index2.html', 'index.html')
 
-def entryNew(title, date, tags, content, filePath, fileList):
-    global g_author
-
+def entryNew(title, date, tags, content, filePath, attachList, attachListPriv):
     html = ''
     html += '  <div class="entry"'
     html += ' date="%s"' % str(date)
@@ -141,7 +145,7 @@ def entryNew(title, date, tags, content, filePath, fileList):
     html += '   </div>\n'
     html += '   <div class="subtitle">\n'
     html += '    %s' % makeDateStr(date)
-    html += ' by <b>%s</b>' % g_author
+    html += ' by <b>%s</b>' % settings.author
     if tags:
         html += ' under\n'
         for tag in tags:
@@ -151,13 +155,18 @@ def entryNew(title, date, tags, content, filePath, fileList):
     html += '    %s\n' % content
     html += '   </div>\n'
     html += '   <div class="files">\n'
-    for f in fileList:
+
+    for f in attachList:
         [base, ext] = os.path.splitext(f)
         link = './%s/%s' % (filePath, f)
         click = f
         if ext in ['.jpg', '.jpeg', '.tif', '.gif', '.bmp']:
             click = '<img src="./%s/%s" />' % (filePath, base + '_thumb' + ext)
         html += '    <a href="%s">%s</a>\n' % (link, click)
+
+    if attachListPriv:
+        html += '    <a href="%s">(private attachments)</a>\n' % (filePath + '_private')
+
     html += '   </div>\n'
     html += '  </div>\n'
     html += '\n'
@@ -173,11 +182,13 @@ if ('HTTP_HOST' in os.environ) and (os.environ['HTTP_HOST'] == 'localhost'):
     import cgitb
     cgitb.enable()
 
+thisFile = os.path.basename(sys.argv[0])
+
 #------------------------------------------------------------------------------
 # command-line/TEST mode
 #------------------------------------------------------------------------------
 if sys.argv[1:]:
-    g_debug = True 
+    settings.debug = True
 
     if sys.argv[1] == 'inserttest':
         date = int(sys.argv[2])
@@ -213,7 +224,7 @@ else:
         # present the control form
         dirName = randStr4()
         print '<h2>New Entry</h2>'
-        print '<form id="newPostForm" action="control.cgi" method="post" enctype="multipart/form-data">'
+        print '<form id="newPostForm" action="%s" method="post" enctype="multipart/form-data">' % thisFile
         print '<input type="hidden" name="op" value="newEntry" />'
         print '<br>'
         print 'Title:<br>'
@@ -226,7 +237,11 @@ else:
         print '<textarea name="entryContent" style="width:640px" rows="16"></textarea>'
         print '<br>'
         print 'Attachments:<br>'
-        print '<input type="file" name="attachments" id="attachments" multiple="" /><br>'
+        print '<input type="file" name="attachments" id="attachments" multiple="" />'
+        print '<br>'
+        print 'Private Attachments:<br>'
+        print '<input type="file" name="attachmentsPrivate" id="attachmentsPrivate" multiple="" />'
+        print '<br>'
         print 'Date:<br>'
         struct_time = time.localtime(time.time())
         # month
@@ -271,12 +286,10 @@ else:
         print '<br><br>'
         print '<input type="submit" value="Post!"><br>'
         print '</form>'
-        print '''
-        <hr>
-        <h2>Ultra Edit</h2>
-        <form action="control.cgi" method="post" enctype="multipart/form-data">
-        <input type="hidden" name="op" value="ultraedit" /><br>
-        '''
+        print '<hr>'
+        print '<h2>Ultra Edit</h2>'
+        print '<form action="%s" method="post" enctype="multipart/form-data" /><br>' % thisFile
+        print '<input type="hidden" name="op" value="ultraedit" /><br>'
         print '<textarea name="html">' + getIndexContents() + '</textarea>'
         print '<br><br>'
         print '<input type="submit" value="Update!"><br>'
@@ -321,15 +334,18 @@ else:
         dirName = entryTitle
         if not dirName:
             dirName = makeDateStr(epoch)
-        print "dirName (pre): %s<br>" % dirName
+        print "dirName (pre): %s<br>\n" % dirName
         dirName = re.sub(r'[^\w]', '_', dirName)
-        print "dirName (post): %s<br>" % dirName
-        while os.path.exists(dirName):
+        print "dirName (post): %s<br>\n" % dirName
+        dirNamePriv = dirName + "_private"
+        while os.path.exists(dirName) or os.path.exists(dirNamePriv):
             m = re.match(r'^(.*)_(\d+)$', dirName)
             if m: dirName = m.group(1) + '_%d' % (int(m.group(2))+1)
             else: dirName = dirName + '_0'
+            dirNamePriv = dirName + "_private"
+        print "dirName: %s<br>\n" % dirName
+        print "dirNamePriv: %s<br>\n" % dirNamePriv
 
-        # save attachments in created dir
         attachList = []
         if form['attachments']:
             print "making directory %s<br>" % dirName
@@ -348,27 +364,50 @@ else:
                     [base, ext] = os.path.splitext(fName)
                     if ext in ['.jpg', '.jpeg', '.tif', '.gif', '.bmp']:
                         im = Image.open(pathed)
-                        im.thumbnail(g_thumbSize, Image.ANTIALIAS)
+                        im.thumbnail(settings.thumbSize, Image.ANTIALIAS)
                         pathThumb = './%s/%s_thumb%s' % (dirName, base, ext)
                         im.save(pathThumb, "JPEG")
                 else:
-                    print "wtf? fileItem doesn't have a filename"
-        else: 
-            print "skipping directory creation<br>"
-  
+                    raise Exception("wtf? fileItem doesn't have a filename")
+        else:
+            print "SKIPPING directory creation<br>\n"
+
+        attachListPriv = []
+        if form['attachmentsPrivate']:
+            print "making directory %s<br>" % dirNamePriv
+            os.mkdir(dirNamePriv)
+
+            if not settings.htpasswd or not settings.htaccess:
+                raise Exception('requested private attachments but not htpasswd or htaccess setting defined')
+            for fileItem in form['attachmentsPrivate']:
+                if fileItem.filename:
+                    fName = fileItem.filename
+                    pathed = './%s/%s' % (dirNamePriv, fName)
+                    print "saving %s<br>" % pathed
+                    saveAttachment(dirNamePriv, fileItem.filename, fileItem)
+                    attachListPriv.append(fName)
+                else:
+                    raise Exception("wtf? fileItem doesn't have a filename")
+
+            writeFile(dirNamePriv, '.htaccess', settings.htaccess)
+            writeFile(dirNamePriv, '.htpasswd', settings.htpasswd)
+        else:
+            print "SKIPPING private directory creation<br>\n"
+
         # process tags
-        tags = ''
+        tags = None
         if 'entryTags' in form:
             tags = form['entryTags'].value
-            if not re.match(r'^[\w, ]+$', tags):
-                raise Exception("illegal characters in tags field")
-            tags = re.split('\W+', tags)
-            print 'tags: %s<br>' % repr(tags)
+            if tags:
+                if not re.match(r'^[\w, ]*$', tags):
+                    raise Exception("illegal characters in tags field")
+                tags = re.split('\W+', tags)
+                print 'tags: %s<br>' % repr(tags)
         else:
             print "no tags<br>"
 
         # make the entry
-        entryNew(entryTitle, epoch, tags, entryContent, dirName, attachList)
+        entryNew(entryTitle, epoch, tags, entryContent, dirName, attachList, attachListPriv)
     
         # done
         print "done!<br>"
