@@ -14,29 +14,16 @@ import settings
 
 def debug(msg):
     if settings.debug:
-        print msg
+        print msg + '<br>\n'
 
-# generate a random 4-character string
-def randStr4():
-    while 1:
-        result = ''
-        lookup = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-        for i in range(4):
-            result += lookup[int(random.random()*len(lookup))]
-
-        if not os.path.exists(result):
-            break
-
-    return result
-
-# will return 
+# ISO 8601 date format
 def makeDateStr(epoch):
     struct_time = time.localtime(epoch)
     string = ''
     # if on even hour:minute:second, assume it's invalid and dont' show it
-    fmt = '%A %b %d, %Y'
+    fmt = '%Y-%m-%d'
     if time.strftime('%H:%M:%S', struct_time) != '00:00:00':
-        fmt += ' %l:%M%p'
+        fmt += 'T%H:%M:%S'
     tmp = time.strftime(fmt, struct_time)
     debug("converted epoch %d to %s" % (epoch, tmp))
     return tmp
@@ -57,8 +44,8 @@ def saveAttachment(dName, fName, fileitem):
 
     # check size
     fileitem.file.seek(0, os.SEEK_END);
-    if fileitem.file.tell() > 16*(2**20):
-        raise Exception("attachment exceeds 16mb limit");
+    if fileitem.file.tell() > settings.uploadLimitMb*(2**20):
+        raise Exception("attachment exceeds %dmb limit", setting.uploadLimitMb);
     fileitem.file.seek(0, os.SEEK_SET);
 
     # check name
@@ -79,17 +66,11 @@ def saveAttachment(dName, fName, fileitem):
     # done
     return path
 
-def getIndexContents():
-    fObj = open('index.html', 'r')
-    temp = fObj.read()
-    fObj.close()
-    return temp
+def entryInsert(html, mdate):
+    fin = open(settings.htmlFile, 'r')
+    fout = open(settings.htmlFileTemp, 'w')
 
-def entryInsert(html, date):
-    fin = open('index.html', 'r')
-    fout = open('index2.html', 'w')
-
-    # the posts are already sorted descending on epoch
+    # the posts are already sorted descending on epoch (largest/newest on top)
     # we must find the first post that we greater than
     ok = 0
     lineNum = 0
@@ -103,19 +84,19 @@ def entryInsert(html, date):
 
         # parse date
         dateCur = None
-        m = re.match(r'^\s*<div class="entry" date="(\d+)".*', line)
+        m = re.match(r'^\s*<div class="entry" cdate="\d+" mdate="(\d+)".*', line)
         if m:
             dateCur = int(m.group(1))
-            debug("at line %d found entry with date %d" % (lineNum, dateCur))
+            debug("at line %d found entry with modify date %d" % (lineNum, dateCur))
         else:
-            m = re.match(r'^\s*<!-- entries-end -->.*', line)
+            m = re.match(r'^\s*<!-- ACMS-end -->.*', line)
             if m:
                 dateCur = 1;
                 debug("at line %d found end of entries" % (lineNum))
 
         if dateCur:
-            debug("at line %d comparing %d to new entry date %d" % (lineNum, dateCur, date))
-            if date > dateCur:
+            debug("at line %d comparing %d to new entry date %d" % (lineNum, dateCur, mdate))
+            if mdate > dateCur:
                 debug("at line %d found insertion point" % lineNum)
                 fout.write(html)
                 fout.write(line)
@@ -132,19 +113,22 @@ def entryInsert(html, date):
     # done
     fin.close()
     fout.close()
-    os.rename('index2.html', 'index.html')
+    os.rename(settings.htmlFileTemp, settings.htmlFile)
 
-def entryNew(title, date, tags, content, filePath, attachList, attachListPriv):
+def entryNew(title, cdate, mdate, tags, content, filePath, attachList, attachListPriv):
     html = ''
     html += '  <div class="entry"'
-    html += ' date="%s"' % str(date)
+    html += ' cdate="%s"' % str(cdate)
+    html += ' mdate="%s"' % str(mdate)
     html += ' tags="%s"' % ','.join(tags)
     html += '>\n'
     html += '   <div class="title">\n'
     html += '    %s\n' % title
     html += '   </div>\n'
     html += '   <div class="subtitle">\n'
-    html += '    %s' % makeDateStr(date)
+    if mdate != cdate:
+        html += '    modified: %s' % makeDateStr(mdate)
+    html += '    created: %s' % makeDateStr(cdate)
     html += ' by <b>%s</b>' % settings.author
     if tags:
         html += ' under\n'
@@ -171,37 +155,24 @@ def entryNew(title, date, tags, content, filePath, attachList, attachListPriv):
     html += '  </div>\n'
     html += '\n'
 
-    entryInsert(html, date)
+    entryInsert(html, mdate)
 
 #------------------------------------------------------------------------------
 # setup
 #------------------------------------------------------------------------------
+
+thisFile = os.path.basename(sys.argv[0])
 
 # debugging if possible
 if ('HTTP_HOST' in os.environ) and (os.environ['HTTP_HOST'] == 'localhost'):
     import cgitb
     cgitb.enable()
 
-thisFile = os.path.basename(sys.argv[0])
-
-#------------------------------------------------------------------------------
-# command-line/TEST mode
-#------------------------------------------------------------------------------
-if sys.argv[1:]:
-    settings.debug = True
-
-    if sys.argv[1] == 'inserttest':
-        date = int(sys.argv[2])
-        debug("trying to insert post with date %d" % date)
-        entryInsert('Test Title', date)
-    
-    if sys.argv[1] == 'new':
-        date = int(sys.argv[2])
-        entryNew('test title', date, ['one','two'], 'test content', 'test_title', ['1.txt', '2.txt', 'foo.jpg', 'derp.tif'])
-
 #------------------------------------------------------------------------------
 # server mode
 #------------------------------------------------------------------------------
+if False:
+    pass
 else:
     print 'Content-Type: text/html\x0d\x0a\x0d\x0a'
     # In HTML 4.01, the <!DOCTYPE> declaration refers to a DTD, because HTML 4.01 was based on SGML. 
@@ -222,7 +193,6 @@ else:
 
     if not op:
         # present the control form
-        dirName = randStr4()
         print '<h2>New Entry</h2>'
         print '<form id="newPostForm" action="%s" method="post" enctype="multipart/form-data">' % thisFile
         print '<input type="hidden" name="op" value="newEntry" />'
@@ -244,10 +214,10 @@ else:
         print '<br>'
         print 'Date:<br>'
         struct_time = time.localtime(time.time())
-        # month
+        # month [1,12] in python (NOTE this differs from standard C lib)
         print '<select name="tm_mon">'
-        for (idx, mo) in zip(range(12), ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']):
-            if idx == 5: #struct_time.tm_mon:
+        for (idx, mo) in zip(range(1,12+1), ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']):
+            if idx == struct_time.tm_mon:
                 print '  <option value="%d" selected="selected">%s</option>' % (idx, mo)
             else:
                 print '  <option value="%d">%s</option>' % (idx, mo)
@@ -287,32 +257,6 @@ else:
         print '<input type="submit" value="Post!"><br>'
         print '</form>'
         print '<hr>'
-        print '<h2>Ultra Edit</h2>'
-        print '<form action="%s" method="post" enctype="multipart/form-data" /><br>' % thisFile
-        print '<input type="hidden" name="op" value="ultraedit" /><br>'
-        print '<textarea name="html">' + getIndexContents() + '</textarea>'
-        print '<br><br>'
-        print '<input type="submit" value="Update!"><br>'
-        print '</form>'
-    
-    elif op == 'ultraedit':
-        html = form['html'].value
-    
-        # gen backup name
-        while 1:
-            backupPath = './backups/' + randStr4() + '_index.html'
-            if not os.path.exists(backupPath):
-                break
-            
-        # copy backup
-        shutil.copy('index.html', backupPath)
-    
-        # write new one
-        fObj = open('index.html', 'wb')
-        fObj.write(html)
-        fObj.close()
-    
-        print "done!"
     
     elif op == 'newEntry':
         requiredFields = ['entryTitle', 'entryContent', 'entryTags', 'tm_mon', 'tm_mday', 
@@ -407,7 +351,7 @@ else:
             print "no tags<br>"
 
         # make the entry
-        entryNew(entryTitle, epoch, tags, entryContent, dirName, attachList, attachListPriv)
+        entryNew(entryTitle, epoch, epoch, tags, entryContent, dirName, attachList, attachListPriv)
     
         # done
         print "done!<br>"
