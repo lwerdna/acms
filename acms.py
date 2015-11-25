@@ -31,8 +31,8 @@ def makeDateStr(epoch):
 def writeFile(dName, fName, content):
     if not re.match(r'^[\w]+$', dName):
         raise Exception('directory name \'%s\' contains illegal characters' % dName)
-    if not re.match(r'^[\w\.]+$', fName):
-        raise Exception('file name contains illegal characters')
+    if not re.match(r'^[\w\. -]+$', fName):
+        raise Exception('file name \"%s\" contains illegal characters', fName)
     path = './%s/%s' % (dName, fName)
     fobj = open(path, 'wb')
     fobj.write(content)
@@ -51,8 +51,8 @@ def saveAttachment(dName, fName, fileitem):
     # check name
     if not re.match(r'^[\w]+$', dName):
         raise Exception('directory name \'%s\' contains illegal characters' % dName)
-    if not re.match(r'^[\w\.]+$', fName):
-        raise Exception('file name contains illegal characters')
+    if not re.match(r'^[\w\. -]+$', fName):
+        raise Exception('file name \"%s\" contains illegal characters' %fName)
     path = './%s/%s' % (dName, fName)
 
     # write destination file
@@ -164,7 +164,7 @@ def entryNew(title, cdate, mdate, tags, content, filePath, attachList, attachLis
 thisFile = os.path.basename(sys.argv[0])
 
 # debugging if possible
-if ('HTTP_HOST' in os.environ) and (os.environ['HTTP_HOST'] == 'localhost'):
+if settings.debug:
     import cgitb
     cgitb.enable()
 
@@ -291,13 +291,23 @@ else:
         print "dirNamePriv: %s<br>\n" % dirNamePriv
 
         attachList = []
-        if form['attachments']:
+
+        # form can provide single or list of FieldStorage
+        attachments = form['attachments']
+        if type(attachments) != type([]):
+            attachments = [attachments]
+        # keep only those that have .file member
+        attachments = filter(lambda x: x.file and x.filename, attachments)
+
+        if attachments:   
             print "making directory %s<br>" % dirName
             os.mkdir(dirName)
 
             # save all attachments
-            for fileItem in form['attachments']:
+            for fileItem in attachments:
+                print "wtfB<br>"
                 if fileItem.filename:
+                    print "wtfC<br>"
                     fName = fileItem.filename
                     pathed = './%s/%s' % (dirName, fName)
                     print "saving %s<br>" % pathed
@@ -316,14 +326,20 @@ else:
         else:
             print "SKIPPING directory creation<br>\n"
 
-        attachListPriv = []
-        if form['attachmentsPrivate']:
+        print "checkA<br>"
+
+        attachmentsPriv = form['attachmentsPrivate']
+        if type(attachmentsPriv) != type([]):
+            attachmentsPriv = [attachmentsPriv]
+        # keep only those that have .file member
+        attachmentsPriv = filter(lambda x: x.file and x.filename, attachmentsPriv)
+        if attachmentsPriv:
             print "making directory %s<br>" % dirNamePriv
             os.mkdir(dirNamePriv)
 
             if not settings.htpasswd or not settings.htaccess:
                 raise Exception('requested private attachments but not htpasswd or htaccess setting defined')
-            for fileItem in form['attachmentsPrivate']:
+            for fileItem in attachmentsPriv:
                 if fileItem.filename:
                     fName = fileItem.filename
                     pathed = './%s/%s' % (dirNamePriv, fName)
@@ -337,7 +353,7 @@ else:
             writeFile(dirNamePriv, '.htpasswd', settings.htpasswd)
         else:
             print "SKIPPING private directory creation<br>\n"
-
+        
         # process tags
         tags = None
         if 'entryTags' in form:
@@ -345,10 +361,12 @@ else:
             if tags:
                 if not re.match(r'^[\w, ]*$', tags):
                     raise Exception("illegal characters in tags field")
-                tags = re.split('\W+', tags)
+                tags = re.split(',', tags)
                 print 'tags: %s<br>' % repr(tags)
         else:
             print "no tags<br>"
+        
+        print "checkC<br>"
 
         # make the entry
         entryNew(entryTitle, epoch, epoch, tags, entryContent, dirName, attachList, attachListPriv)
